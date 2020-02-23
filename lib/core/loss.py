@@ -107,7 +107,7 @@ class JointsOffsetLoss(JointsMSELoss):
         num_joints = output.size(1)
 
         gt = target.reshape((batch_size, num_joints, -1))
-        offset_mask = (gt > 0).float().split(1, 1)  #[[batch, 1, h*w], ... ...]
+        #offset_mask = (gt > 0).float().split(1, 1)  #[[batch, 1, h*w], ... ...]
         heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
         heatmaps_gt = gt.split(1, 1)
         offsets_pred = hm_hps.reshape((batch_size, 2*num_joints, -1)).split(2, dim=1)
@@ -116,8 +116,8 @@ class JointsOffsetLoss(JointsMSELoss):
         joint_loss, offset_loss = 0, 0
 
         for idx in range(num_joints):
-            offset_pred = offsets_pred[idx] * offset_mask[idx]  # [batch_size, 2, h*w]
-            offset_gt = offsets_gt[idx] * offset_mask[idx]  # [batch_size, 2, h*w]
+            offset_pred = offsets_pred[idx] * heatmaps_gt[idx]  # [batch_size, 2, h*w]
+            offset_gt = offsets_gt[idx] * heatmaps_gt[idx]  # [batch_size, 2, h*w]
             heatmap_pred = heatmaps_pred[idx].squeeze()  # [batch_size, h*w]
             heatmap_gt = heatmaps_gt[idx].squeeze()  # [batch_size, h*w]
             if self.use_target_weight:
