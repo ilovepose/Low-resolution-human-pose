@@ -57,7 +57,7 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
                 loss += criterion(output, target, target_weight)
         else:
             output = outputs
-            loss = criterion(output, hm_hps, target, target_offset, target_weight, stride)
+            loss = criterion(output, hm_hps, target, target_offset, target_weight)
 
         # compute gradient and do update step
         optimizer.zero_grad()
@@ -156,8 +156,13 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
                                            val_dataset.flip_pairs)
                 output_flipped = torch.from_numpy(output_flipped.copy()).cuda()
 
-                offset_flipped = flip_back(offset_flipped.cpu().numpy(),
-                                           val_dataset.flip_offset_pairs)
+                offset_flipped = offset_flipped.cpu().numpy()
+                offset_flipped[:, 0:2*config.MODEL.NUM_JOINTS:2, :, :] = flip_back(
+                                            -offset_flipped[:, 0:2*config.MODEL.NUM_JOINTS:2, :, :],
+                                            val_dataset.flip_pairs)  # flip offset_x with multiplying -1
+                offset_flipped[:, 1:2 * config.MODEL.NUM_JOINTS:2, :, :] = flip_back(
+                                            offset_flipped[:, 1:2 * config.MODEL.NUM_JOINTS:2, :, :],
+                                            val_dataset.flip_pairs)  # flip offset_y without multiplying -1
                 offset_flipped = torch.from_numpy(offset_flipped.copy()).cuda()
 
                 output = (output + output_flipped) * 0.5
@@ -167,7 +172,7 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
             target_offset = target_offset.cuda(non_blocking=True)
             target_weight = target_weight.cuda(non_blocking=True)
 
-            loss = criterion(output, output_offset, target, target_offset, target_weight, stride)
+            loss = criterion(output, output_offset, target, target_offset, target_weight)
 
             num_images = input.size(0)
             locref_stdev = config.DATASET.LOCREF_STDEV if not config.CIRCLE_MASK else config.MODEL.SIGMA*3*stride[np.newaxis, np.newaxis, :]

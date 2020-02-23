@@ -93,3 +93,5 @@ external/
 draws/
 plot/
 
+cocoapi/
+venv/

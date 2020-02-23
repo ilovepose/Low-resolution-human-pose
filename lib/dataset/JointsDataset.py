@@ -278,8 +278,8 @@ class JointsDataset(Dataset):
                 hp_offset = joints_heatmap[:, :2] - joint_hm_int  # 范围[-0.5, 0.5)
                 stride = np.array([1.0, 1.0])
             else:
-                joint_hm_int = (joints[:, :2] / self.feat_stride + 0.5).astype(np.int8)
-                hp_offset = joints[:, :2] - joint_hm_int * self.feat_stride  # 范围[-0.5*stride, 0.5*stride)
+                joint_hm_int = (joints[:, :2] / self.feat_stride).astype(np.int8)
+                hp_offset = joints[:, :2] - (joint_hm_int+0.5) * self.feat_stride  # 范围[-0.5*stride, 0.5*stride)
                 stride = self.feat_stride.copy()
             locref_stdev = self.locref_stdev
 

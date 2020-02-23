@@ -167,7 +167,7 @@ def get_final_preds_offset(off_out, hms, hm_offs, locref_stdev,
         coords = coords + offset_pred*locref_stdev
         size = out_size
     else:
-        coords = coords * stride + offset_pred*locref_stdev
+        coords = (coords+0.5) * stride + offset_pred*locref_stdev
         size = in_size
 
     preds = coords.copy()

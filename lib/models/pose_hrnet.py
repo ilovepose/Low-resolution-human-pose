@@ -478,11 +478,8 @@ class PoseHighResolutionNet(nn.Module):
                 x_list.append(y_list[i])
         y_list = self.stage4(x_list)
 
-        x2 = y_list[0]
-        x1 = y_list[0]
-        for _ in range(1):
-            x2 = self.final_block_hm(x2)
-            x1 = self.final_block_om(x1)
+        x2 = self.final_block_hm(y_list[0])
+        x1 = self.final_block_om(y_list[0])
         x2 = self.final_layer_hm(x2)
         x1 = self.final_layer_om(x1)
         return x2, x1

@@ -91,9 +91,8 @@ class JointsOffsetLoss(JointsMSELoss):
         self.off_out = off_out
         self.offset_weight = offset_weight
         self.criterion_offset = nn.SmoothL1Loss(reduction='mean') if smooth_l1 else nn.L1Loss(reduction='mean')
-        self.softmax = nn.Softmax(dim=2)
 
-    def forward(self, output, hm_hps, target, target_offset, target_weight, stride):
+    def forward(self, output, hm_hps, target, target_offset, target_weight):
         """
         calculate loss
         :param output: [batch, joints, height, width]
@@ -108,8 +107,7 @@ class JointsOffsetLoss(JointsMSELoss):
         num_joints = output.size(1)
 
         gt = target.reshape((batch_size, num_joints, -1))
-        # offset_mask = self.softmax(gt).split(1, 1)  # [[batch, 1, h*w], ... ...]
-        offset_mask = (gt > 0).float().split(1, 1)
+        offset_mask = (gt > 0).float().split(1, 1)  #[[batch, 1, h*w], ... ...]
         heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
         heatmaps_gt = gt.split(1, 1)
         offsets_pred = hm_hps.reshape((batch_size, 2*num_joints, -1)).split(2, dim=1)
@@ -118,23 +116,22 @@ class JointsOffsetLoss(JointsMSELoss):
         joint_loss, offset_loss = 0, 0
 
         for idx in range(num_joints):
-            # valid_num = offset_mask[idx].sum()
             offset_pred = offsets_pred[idx] * offset_mask[idx]  # [batch_size, 2, h*w]
             offset_gt = offsets_gt[idx] * offset_mask[idx]  # [batch_size, 2, h*w]
             heatmap_pred = heatmaps_pred[idx].squeeze()  # [batch_size, h*w]
             heatmap_gt = heatmaps_gt[idx].squeeze()  # [batch_size, h*w]
             if self.use_target_weight:
-                joint_loss += 0.5 * self.criterion(
+                joint_loss  += 0.5 * self.criterion(
                     heatmap_pred.mul(target_weight[:, idx]),
                     heatmap_gt.mul(target_weight[:, idx])
                 )
-                offset_loss += self.criterion_offset(
+                offset_loss += 0.5 * self.criterion_offset(
                     offset_pred.mul(target_weight[:, idx].unsqueeze(2)),
                     offset_gt.mul(target_weight[:, idx].unsqueeze(2))
-                )*0.5  # / valid_num
+                )
             else:
-                joint_loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
-                offset_loss += self.criterion_offset(offset_pred, offset_gt)*0.5  # / valid_num
+                joint_loss  += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
+                offset_loss += 0.5 * self.criterion_offset(offset_pred, offset_gt)
 
         loss = joint_loss + self.offset_weight * offset_loss
 

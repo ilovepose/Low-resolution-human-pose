@@ -93,9 +93,6 @@ class COCODataset(JointsDataset):
         self.num_joints = 17
         self.flip_pairs = [[1, 2], [3, 4], [5, 6], [7, 8],
                            [9, 10], [11, 12], [13, 14], [15, 16]]
-        flip_x_pairs = np.arange(2, 34, 2, dtype=np.int8).reshape([-1, 2])
-        flip_y_pairs = np.arange(3, 34, 2, dtype=np.int8).reshape([-1, 2])
-        self.flip_offset_pairs = flip_x_pairs.tolist()+flip_y_pairs.tolist(); del flip_x_pairs, flip_y_pairs
         self.parent_ids = None
         self.upper_body_ids = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
         self.lower_body_ids = (11, 12, 13, 14, 15, 16)
