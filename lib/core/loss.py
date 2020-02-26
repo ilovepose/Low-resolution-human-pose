@@ -13,6 +13,38 @@ import torch
 import torch.nn as nn
 
 
+def _neg_loss(pred, gt):
+    """
+    Modified focal loss. Exactly the same as CornerNet.
+    Runs faster and costs a little bit more memory
+    :param pred: (batch x joints x h x w)
+    :param gt: (batch x joints x h x w)
+    """
+    alpha = 0.1
+    beta  = 0.02
+    thre  = 0.01
+
+    pos_inds = gt.gt(thre).float()  # gt > thre
+    neg_inds = gt.le(thre).float()  # gt <= 1
+
+    focal_weights = torch.pow(1-pred+alpha, 2)*pos_inds + \
+                    torch.pow(pred+beta, 2)*neg_inds
+
+    focal_l2 = torch.pow(pred - gt, 2) * focal_weights.detach()
+    loss = focal_l2.mean()
+    return loss
+
+
+class FocalL2Loss(nn.Module):
+    """nn.Module warpper for focal loss"""
+    def __init__(self):
+        super(FocalL2Loss, self).__init__()
+        self.neg_loss = _neg_loss
+
+    def forward(self, out, target):
+        return self.neg_loss(out, target)
+
+
 class JointsMSELoss(nn.Module):
     def __init__(self, use_target_weight):
         super(JointsMSELoss, self).__init__()
@@ -85,11 +117,12 @@ class JointsOHKMMSELoss(nn.Module):
         return self.ohkm(loss)
 
 
-class JointsOffsetLoss(JointsMSELoss):
-    def __init__(self, use_target_weight, off_out, offset_weight, smooth_l1):
-        super(JointsOffsetLoss, self).__init__(use_target_weight)
-        self.off_out = off_out
+class JointsOffsetLoss(nn.Module):
+    def __init__(self, use_target_weight, offset_weight, smooth_l1):
+        super(JointsOffsetLoss, self).__init__()
+        self.use_target_weight=use_target_weight
         self.offset_weight = offset_weight
+        self.criterion = nn.MSELoss(reduction='mean')
         self.criterion_offset = nn.SmoothL1Loss(reduction='mean') if smooth_l1 else nn.L1Loss(reduction='mean')
 
     def forward(self, output, hm_hps, target, target_offset, target_weight):
@@ -103,13 +136,12 @@ class JointsOffsetLoss(JointsMSELoss):
         :param stride: downsample ratio
         :return: loss
         """
+        # if epoch==130: self.criterion = FocalL2Loss()
         batch_size = output.size(0)
         num_joints = output.size(1)
 
-        gt = target.reshape((batch_size, num_joints, -1))
-        #offset_mask = (gt > 0).float().split(1, 1)  #[[batch, 1, h*w], ... ...]
         heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
-        heatmaps_gt = gt.split(1, 1)
+        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
         offsets_pred = hm_hps.reshape((batch_size, 2*num_joints, -1)).split(2, dim=1)
         offsets_gt = target_offset.reshape((batch_size, 2*num_joints, -1)).split(2, dim=1)
 

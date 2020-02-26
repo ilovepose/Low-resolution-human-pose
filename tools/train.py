@@ -118,7 +118,6 @@ def main():
     # define loss function (criterion) and optimizer
     criterion = JointsOffsetLoss(
         use_target_weight=cfg.LOSS.USE_TARGET_WEIGHT,
-        off_out=cfg.OFF_OUT,
         offset_weight=cfg.LOSS.OFFSET_WEIGHT,
         smooth_l1=cfg.LOSS.OFF_SMOOTH_L1,
     ).cuda()
