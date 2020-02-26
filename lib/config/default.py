@@ -157,6 +157,9 @@ def update_config(cfg, args):
             cfg.DATA_DIR, cfg.TEST.MODEL_FILE
         )
 
+    if cfg.OFF_OUT:
+        cfg.DATASET.LOCREF_STDEV = 3.0/2
+
     cfg.freeze()
 
 
