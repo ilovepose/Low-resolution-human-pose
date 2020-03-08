@@ -24,11 +24,17 @@ def _neg_loss(pred, gt):
     beta  = 0.02
     thre  = 0.01
 
-    pos_inds = gt.gt(thre).float()  # gt > thre
-    neg_inds = gt.le(thre).float()  # gt <= 1
+    #pos_inds = gt.gt(thre).float()  # gt > thre
+    #neg_inds = gt.le(thre).float()  # gt <= 1
 
-    focal_weights = torch.pow(1-pred+alpha, 2)*pos_inds + \
-                    torch.pow(pred+beta, 2)*neg_inds
+    #focal_weights = torch.pow(1-pred+alpha, 2)*pos_inds + \
+    #                torch.pow(pred+beta, 2)*neg_inds
+
+    #st = torch.where(torch.ge(gt, 0.01), pred-alpha, 1-pred-beta)
+    #focal_weights = torch.abs(1. - st)
+    zeros = torch.zeros_like(pred)
+    st = torch.where(torch.ge(gt, 0.01), zeros+alpha, zeros+beta)
+    focal_weights = torch.abs(gt - pred)+st
 
     focal_l2 = torch.pow(pred - gt, 2) * focal_weights.detach()
     loss = focal_l2.mean()
@@ -122,10 +128,10 @@ class JointsOffsetLoss(nn.Module):
         super(JointsOffsetLoss, self).__init__()
         self.use_target_weight=use_target_weight
         self.offset_weight = offset_weight
-        self.criterion = nn.MSELoss(reduction='mean')
+        self.criterion = FocalL2Loss()#  nn.MSELoss(reduction='mean')
         self.criterion_offset = nn.SmoothL1Loss(reduction='mean') if smooth_l1 else nn.L1Loss(reduction='mean')
 
-    def forward(self, output, hm_hps, target, target_offset, target_weight):
+    def forward(self, output, hm_hps, target, target_offset, target_weight, epoch):
         """
         calculate loss
         :param output: [batch, joints, height, width]
@@ -136,7 +142,7 @@ class JointsOffsetLoss(nn.Module):
         :param stride: downsample ratio
         :return: loss
         """
-        # if epoch==130: self.criterion = FocalL2Loss()
+        # if epoch==250: self.criterion = FocalL2Loss()
         batch_size = output.size(0)
         num_joints = output.size(1)
 

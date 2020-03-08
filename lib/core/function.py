@@ -57,7 +57,7 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
                 loss += criterion(output, target, target_weight)
         else:
             output = outputs
-            loss = criterion(output, hm_hps, target, target_offset, target_weight)
+            loss = criterion(output, hm_hps, target, target_offset, target_weight, epoch)
 
         # compute gradient and do update step
         optimizer.zero_grad()
@@ -104,7 +104,7 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
 
 
 def validate(config, val_loader, val_dataset, model, criterion, output_dir,
-             tb_log_dir, writer_dict=None):
+             epoch, writer_dict=None):
     batch_time = AverageMeter()
     losses = AverageMeter()
     acc = AverageMeter2()
@@ -172,7 +172,7 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
             target_offset = target_offset.cuda(non_blocking=True)
             target_weight = target_weight.cuda(non_blocking=True)
 
-            loss = criterion(output, output_offset, target, target_offset, target_weight)
+            loss = criterion(output, output_offset, target, target_offset, target_weight, epoch)
 
             num_images = input.size(0)
             locref_stdev = config.DATASET.LOCREF_STDEV if not config.CIRCLE_MASK else config.MODEL.SIGMA*3*stride[np.newaxis, np.newaxis, :]

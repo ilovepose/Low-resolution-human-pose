@@ -63,6 +63,12 @@ class JointsDataset(Dataset):
         self.transform = transform
         self.db = []
 
+        self.c = [.26, .25, .25, .35, .35, .79, .79, .72, .72, .62,
+                  .62, 1.07, 1.07, .87, .87, .89, .89]
+        self.x = np.arange(0, self.heatmap_size[0], 1, np.float32)
+        self.y = np.arange(0, self.heatmap_size[1], 1, np.float32)
+        self.y = self.y[:, np.newaxis]
+
     def _get_db(self):
         raise NotImplementedError
 
@@ -281,30 +287,26 @@ class JointsDataset(Dataset):
                 joint_hm_int = (joints[:, :2] / self.feat_stride).astype(np.int8)
                 hp_offset = joints[:, :2] - (joint_hm_int+0.5) * self.feat_stride  # 范围[-0.5*stride, 0.5*stride)
                 stride = self.feat_stride.copy()
-            locref_stdev = self.locref_stdev
 
             for joint_id in range(self.num_joints):
                 target_weight[joint_id] = \
                         self.adjust_target_weight(joint_hm_int[joint_id], target_weight[joint_id], tmp_size)
 
-                #if target_weight[joint_id] == 0:
-                #    continue
+                if target_weight[joint_id] == 0:
+                    continue
 
-                mu_x = joints[joint_id][0]
-                mu_y = joints[joint_id][1]
-
-                x = np.arange(0, self.heatmap_size[0], 1, np.float32)
-                y = np.arange(0, self.heatmap_size[1], 1, np.float32)
-                y = y[:, np.newaxis]
+                mu_x = joints_heatmap[joint_id][0]
+                mu_y = joints_heatmap[joint_id][1]
 
                 # Generate gaussian
                 if target_weight[joint_id] > 0.5:
                     # generate offset matrix and heatmap
                     draw_dense_reg(hm_hp_offset[2*joint_id:2*joint_id+2], hm_hp[joint_id],
                                    joint_hm_int[joint_id], hp_offset[joint_id, :2],
-                                   tmp_size, stride, locref_stdev,
-                                   is_offset=True, is_circle_mask=self.circle_mask)
-                    # hm_hp[joint_id] = np.exp(- ((x - mu_x) ** 2 + (y - mu_y) ** 2) / (2 * self.sigma ** 2))
+                                   tmp_size, stride, self.locref_stdev,
+                                   1.0, is_circle_mask=self.circle_mask)  #self.c[joint_id]
+                    mask = (hm_hp[joint_id]>0.0)
+                    hm_hp[joint_id] = np.exp(- ((self.x - mu_x) ** 2 + (self.y - mu_y) ** 2) / (2 * self.sigma ** 2))*mask
             del stride
         if self.use_different_joints_weight:
             target_weight = np.multiply(target_weight, self.joints_weight)
