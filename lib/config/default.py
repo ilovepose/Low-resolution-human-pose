@@ -26,8 +26,9 @@ _C.PRINT_FREQ = 20
 _C.AUTO_RESUME = False
 _C.PIN_MEMORY = True
 _C.RANK = 0
-_C.OFF_OUT = False
-_C.CIRCLE_MASK = False
+_C.ALPHA = 0.1
+_C.BETA = 0.02
+_C.GAMA = 0.5
 
 # Cudnn related params
 _C.CUDNN = CN()
@@ -46,6 +47,7 @@ _C.MODEL.TARGET_TYPE = 'gaussian'
 _C.MODEL.IMAGE_SIZE = [256, 256]  # width * height, ex: 192 * 256
 _C.MODEL.HEATMAP_SIZE = [64, 64]  # width * height, ex: 24 * 32
 _C.MODEL.SIGMA = 2
+_C.MODEL.MASK_SIGMA = 1.0
 _C.MODEL.EXTRA = CN(new_allowed=True)
 
 _C.LOSS = CN()
@@ -54,7 +56,12 @@ _C.LOSS.TOPK = 8
 _C.LOSS.USE_TARGET_WEIGHT = True
 _C.LOSS.USE_DIFFERENT_JOINTS_WEIGHT = False
 _C.LOSS.OFFSET_WEIGHT = 1.0
-_C.LOSS.OFF_SMOOTH_L1 = False
+_C.LOSS.PIXEL_HM = False
+_C.LOSS.PRED_MASK = False
+_C.LOSS.GT_MASK = False
+_C.LOSS.SMOOTH_L1 = False
+_C.LOSS.BCE = False
+_C.LOSS.KPD = 4.0
 
 # DATASET related params
 _C.DATASET = CN()
@@ -65,8 +72,7 @@ _C.DATASET.TEST_SET = 'valid'
 _C.DATASET.DATA_FORMAT = 'jpg'
 _C.DATASET.HYBRID_JOINTS_TYPE = ''
 _C.DATASET.SELECT_DATA = False
-_C.DATASET.DIST_SCALE = 0.8452830189
-_C.DATASET.LOCREF_STDEV = 7.2801
+_C.DATASET.LOCREF_STDEV = 1.0
 
 # training data augmentation
 _C.DATASET.FLIP = True
@@ -98,6 +104,9 @@ _C.TRAIN.CHECKPOINT = ''
 
 _C.TRAIN.BATCH_SIZE_PER_GPU = 32
 _C.TRAIN.SHUFFLE = True
+
+_C.TRAIN.FINETUNE_HM = False
+_C.TRAIN.FINETUNE_OM = False
 
 # testing
 _C.TEST = CN()
@@ -156,9 +165,6 @@ def update_config(cfg, args):
         cfg.TEST.MODEL_FILE = os.path.join(
             cfg.DATA_DIR, cfg.TEST.MODEL_FILE
         )
-
-    if cfg.OFF_OUT:
-        cfg.DATASET.LOCREF_STDEV = 3.0/2
 
     cfg.freeze()
 

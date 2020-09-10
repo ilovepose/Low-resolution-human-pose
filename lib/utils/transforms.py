@@ -48,10 +48,16 @@ def fliplr_joints(joints, joints_vis, width, matched_parts):
 
 
 def transform_preds(coords, center, scale, output_size):
+    # target_coords = np.zeros(coords.shape)
+    # trans = get_affine_transform(center, scale, 0, output_size, inv=1)
+    # for p in range(coords.shape[0]):
+    #     target_coords[p, 0:2] = affine_transform(coords[p, 0:2], trans)
+    scale = scale * 200.0
+    scale_x = scale[0]/(output_size[0]-1.0)
+    scale_y = scale[1]/(output_size[1]-1.0)
     target_coords = np.zeros(coords.shape)
-    trans = get_affine_transform(center, scale, 0, output_size, inv=1)
-    for p in range(coords.shape[0]):
-        target_coords[p, 0:2] = affine_transform(coords[p, 0:2], trans)
+    target_coords[:,0] = coords[:,0]*scale_x + center[0]-scale[0]*0.5
+    target_coords[:,1] = coords[:,1]*scale_y + center[1]-scale[1]*0.5
     return target_coords
 
 

@@ -95,3 +95,6 @@ plot/
 
 cocoapi/
 venv/
+demo/
+.pickle
+tools/visualize.py

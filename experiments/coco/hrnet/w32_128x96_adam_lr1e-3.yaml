@@ -9,6 +9,9 @@ OUTPUT_DIR: 'output'
 LOG_DIR: 'log'
 WORKERS: 24
 PRINT_FREQ: 100
+ALPHA: 1.1
+BETA: 0.9
+GAMA: 0.2
 
 
 DATASET:
@@ -23,8 +26,7 @@ DATASET:
   SCALE_FACTOR: 0.35
   TEST_SET: 'val2017'
   TRAIN_SET: 'train2017'
-  DIST_SCALE: 0.8452830189
-  LOCREF_STDEV: 7.2801
+  LOCREF_STDEV: 1.5
 MODEL:
   INIT_WEIGHTS: true
   NAME: pose_hrnet
@@ -38,6 +40,7 @@ MODEL:
   - 24
   - 32
   SIGMA: 1
+  MASK_SIGMA: 1.0
   EXTRA:
     PRETRAINED_LAYERS:
     - 'conv1'
@@ -98,6 +101,12 @@ MODEL:
 LOSS:
   USE_TARGET_WEIGHT: true
   OFFSET_WEIGHT: 1.0
+  PIXEL_HM: false
+  PRED_MASK: false
+  GT_MASK: true
+  SMOOTH_L1: false
+  BCE: false
+  KPD: 4.0
 TRAIN:
   BATCH_SIZE_PER_GPU: 64
   SHUFFLE: true

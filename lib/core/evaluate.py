@@ -20,7 +20,7 @@ def calc_dists(preds, target, normalize):
     dists = np.zeros((preds.shape[1], preds.shape[0]))
     for n in range(preds.shape[0]):
         for c in range(preds.shape[1]):
-            if target[n, c, 0] > 0 or target[n, c, 1] > 0:  # 为什么大于1 和 and ???
+            if target[n, c, 0] > 1 and target[n, c, 1] > 1:  # 为什么大于1 和 and ???
                 normed_preds = preds[n, c, :] / normalize[n]
                 normed_targets = target[n, c, :] / normalize[n]
                 dists[c, n] = np.linalg.norm(normed_preds - normed_targets)
@@ -72,7 +72,7 @@ def accuracy(output, target, hm_type='gaussian', thr=0.5):
     return acc, avg_acc, cnt, pred
 
 
-def accuracy2(output, hm_hps, target, target_hm_hps, off_out, stride, locref_stdev, thr=0.5):
+def accuracy2(output, hm_hps, target, target_hm_hps, stride, locref_stdev, thr=0.5):
     num_joints = output.shape[1]
     h = output.shape[2]
     w = output.shape[3]
@@ -82,16 +82,11 @@ def accuracy2(output, hm_hps, target, target_hm_hps, off_out, stride, locref_std
     int_target, _ = get_max_preds(target)
     offset_pred = get_offset(hm_hps, int_pred)  # [batch, joints, 2]
     offset_target = get_offset(target_hm_hps, int_target)
-    if off_out:
-        pred   = int_pred + offset_pred*locref_stdev
-        target = int_target + offset_target*locref_stdev
-        offset_norm = np.ones((pred.shape[0], 2))
-        final_norm = norm
-    else:
-        pred   = (int_pred+0.5)*stride + offset_pred*locref_stdev
-        target = (int_target+0.5)*stride + offset_target*locref_stdev
-        offset_norm = np.ones((pred.shape[0], 2))*stride
-        final_norm = norm * stride
+
+    pred   = int_pred + offset_pred*locref_stdev
+    target = int_target + offset_target*locref_stdev
+    offset_norm = np.ones((pred.shape[0], 2))
+    final_norm = norm
 
     int_dists = calc_dists(int_pred, int_target, norm)
     offset_dists = dist(offset_pred, offset_target, int_target, offset_norm)
@@ -124,7 +119,7 @@ def accuracy2(output, hm_hps, target, target_hm_hps, off_out, stride, locref_std
 
 def get_offset(hm_hps, idx):
     """
-
+    Get offset according to idx and clip it
     :param hm_hps:
     :param idx:
     :return: offset array [batch, joints, 2]
@@ -158,17 +153,18 @@ def dist(offset_preds, offset_targets, target, norm):
     return dists.transpose(1, 0)  # [joints, batch]
 
 
-def get_final_preds_offset(off_out, hms, hm_offs, locref_stdev,
+def get_final_preds_offset(hms, hm_offs, locref_stdev,
                            center, scale, stride, in_size, out_size):
     coords, maxvals = get_max_preds(hms)
     offset_pred = get_offset(hm_offs, coords)
 
-    if off_out:
-        coords = coords + offset_pred*locref_stdev
-        size = out_size
-    else:
-        coords = (coords+0.5) * stride + offset_pred*locref_stdev
-        size = in_size
+    # if off_out:
+    coords = coords + offset_pred * locref_stdev
+    size = out_size
+    # else:
+    #     raise NotImplemented
+    #     coords = coords * stride + offset_pred
+    #     size = in_size
 
     preds = coords.copy()
 
@@ -177,21 +173,3 @@ def get_final_preds_offset(off_out, hms, hm_offs, locref_stdev,
             coords[i], center[i], scale[i], size
         )
     return preds, maxvals
-
-
-# if __name__ == '__main__':
-#     import os.path as osp
-#     import sys
-#     this_dir = osp.dirname(__file__)
-#     lib_path = osp.join(this_dir, '..')
-#     sys.path.insert(0, lib_path) if lib_path not in sys.path else 0
-#
-#     from core.inference import get_max_preds
-#
-#     num_joints=2
-#     output = np.zeros([1, num_joints, 5, 5]); output[0, 0, 2, 2] = 1; output[0, 1, 1, 1] = 1
-#     hm_hps = np.zeros([1, 2*num_joints, 5, 5]); hm_hps[0,:2,2,2]=np.array([-0.3,0.4]); hm_hps[0,2:,1,1]=np.array([-0.4,0.4])
-#     target = np.zeros([1, num_joints, 5, 5]); target[0, 0, 2, 2] = 1; target[0,1,1,1]=1
-#     target_hm_hps = np.zeros([1, 2*num_joints, 5, 5]); target_hm_hps[0, :2, 2, 2] = np.array([-0.2, 0.4]);target_hm_hps[0,2:,1,1]=np.array([-0.2,0.2])
-#     acc, avg_acc, cnt, pred = accuracy2(output, hm_hps, target, target_hm_hps)
-#     print(acc)

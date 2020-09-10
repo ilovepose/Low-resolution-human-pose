@@ -318,38 +318,23 @@ class PoseHighResolutionNet(nn.Module):
         ]
         self.transition3 = self._make_transition_layer(
             pre_stage_channels, num_channels)
-        self.stage4, pre_stage_channels = self._make_stage(
+        self.stage4, pre_stage_channels_hm = self._make_stage(
             self.stage4_cfg, num_channels, multi_scale_output=False)
 
-        self.final_layer_hm_cfg = cfg['MODEL']['EXTRA']['FINAL_HM']
-        block = blocks_dict[self.final_layer_hm_cfg['BLOCK']]
-        self.final_block_hm = block(
-            inplanes=pre_stage_channels[0],
-            planes=pre_stage_channels[0],
-            stride=1,
+        self.transition3_om = self._make_transition_layer(
+            pre_stage_channels, num_channels)
+        self.stage4_om, pre_stage_channels_om = self._make_stage(
+            self.stage4_cfg, num_channels, multi_scale_output=False)
 
-        )
-        self.final_layer_hm = nn.Conv2d(
-            in_channels=pre_stage_channels[0],
-            out_channels=cfg.MODEL.NUM_JOINTS,
-            kernel_size=extra.FINAL_CONV_KERNEL,
-            stride=1,
-            padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0
-        )
-        self.final_layer_om_cfg = cfg['MODEL']['EXTRA']['FINAL_OM']
-        block = blocks_dict[self.final_layer_om_cfg['BLOCK']]
-        self.final_block_om = block(
-            inplanes=pre_stage_channels[0],
-            planes=pre_stage_channels[0],
-            stride=1,
-        )
-        self.final_layer_om = nn.Conv2d(
-            in_channels=pre_stage_channels[0],
-            out_channels=2 * cfg.MODEL.NUM_JOINTS,
-            kernel_size=extra.FINAL_CONV_KERNEL,
-            stride=1,
-            padding=1 if extra.FINAL_CONV_KERNEL == 3 else 0
-        )
+        self.head_hm = HeadHeatMap(pre_stage_channels_hm[0],
+                                   cfg.MODEL.NUM_JOINTS,
+                                   cfg['MODEL']['EXTRA']['FINAL_HM']['BLOCK'],
+                                   extra.FINAL_CONV_KERNEL)
+
+        self.head_om = HeadOffsetMap(pre_stage_channels_om[0],
+                                     2*cfg.MODEL.NUM_JOINTS,
+                                     cfg['MODEL']['EXTRA']['FINAL_OM']['BLOCK'],
+                                     extra.FINAL_CONV_KERNEL)
 
         self.pretrained_layers = cfg['MODEL']['EXTRA']['PRETRAINED_LAYERS']
 
@@ -470,19 +455,25 @@ class PoseHighResolutionNet(nn.Module):
                 x_list.append(y_list[i])
         y_list = self.stage3(x_list)
 
-        x_list = []
+        x_list_hm = []
         for i in range(self.stage4_cfg['NUM_BRANCHES']):
             if self.transition3[i] is not None:
-                x_list.append(self.transition3[i](y_list[-1]))
+                x_list_hm.append(self.transition3[i](y_list[-1]))
             else:
-                x_list.append(y_list[i])
-        y_list = self.stage4(x_list)
+                x_list_hm.append(y_list[i])
+        y_list_hm = self.stage4(x_list_hm)
 
-        x2 = self.final_block_hm(y_list[0])
-        x1 = self.final_block_om(y_list[0])
-        x2 = self.final_layer_hm(x2)
-        x1 = self.final_layer_om(x1)
-        return x2, x1
+        x_list_om = []
+        for i in range(self.stage4_cfg['NUM_BRANCHES']):
+            if self.transition3_om[i] is not None:
+                x_list_om.append(self.transition3_om[i](y_list[-1]))
+            else:
+                x_list_om.append(y_list[i])
+        y_list_om = self.stage4_om(x_list_om)
+
+        x_hm = self.head_hm(y_list_hm[0])
+        x_om = self.head_om(y_list_om[0])
+        return x_hm, x_om
 
     def init_weights(self, pretrained=''):
         logger.info('=> init weights from normal distribution')
@@ -515,6 +506,94 @@ class PoseHighResolutionNet(nn.Module):
         elif pretrained:
             logger.error('=> please download pre-trained models first!')
             raise ValueError('{} is not exist!'.format(pretrained))
+
+    def freeze_weights(self, finetune_hm, finetune_om):
+        # Freeze all parameters
+        for param in self.parameters():
+            param.requires_grad = False
+
+        # Not update BN's running stats
+        for layer in self.modules():
+            if isinstance(layer, nn.BatchNorm2d):
+                layer.eval()
+
+        if finetune_hm:
+            # Unfreeze cls_head's parameters
+            for param in self.head_hm.parameters():
+                param.requires_grad = True
+
+            # Update the running stats
+            for layer in self.head_hm.modules():
+                if isinstance(layer, nn.BatchNorm2d):
+                    layer.train()
+
+        if finetune_om:
+            # Unfreeze cls_head's parameters
+            for param in self.head_om.parameters():
+                param.requires_grad = True
+
+            # Update the running stats
+            for layer in self.head_om.modules():
+                if isinstance(layer, nn.BatchNorm2d):
+                    layer.train()
+
+
+class HeadHeatMap(nn.Module):
+    def __init__(self, in_size, out_size, block_type, conv_kernel_size):
+        super(HeadHeatMap, self).__init__()
+        block = blocks_dict[block_type]
+        self.final_block1 = block(
+            inplanes=in_size,
+            planes=in_size,
+            stride=1,
+        )
+        self.final_block_hm = block(
+            inplanes=in_size,
+            planes=in_size,
+            stride=1,
+        )
+        self.final_layer_hm = nn.Conv2d(
+            in_channels=in_size,
+            out_channels=out_size,
+            kernel_size=conv_kernel_size,
+            stride=1,
+            padding=1 if conv_kernel_size == 3 else 0
+        )
+
+    def forward(self, x):
+        x = self.final_block1(x)
+        x = self.final_block_hm(x)
+        x = self.final_layer_hm(x)
+        return x
+
+
+class HeadOffsetMap(nn.Module):
+    def __init__(self, in_size, out_size, block_type, conv_kernel_size):
+        super(HeadOffsetMap, self).__init__()
+        block = blocks_dict[block_type]
+        self.final_block1 = block(
+            inplanes=in_size,
+            planes=in_size,
+            stride=1,
+        )
+        self.final_block_om = block(
+            inplanes=in_size,
+            planes=in_size,
+            stride=1,
+        )
+        self.final_layer_om = nn.Conv2d(
+            in_channels=in_size,
+            out_channels=out_size,
+            kernel_size=conv_kernel_size,
+            stride=1,
+            padding=1 if conv_kernel_size == 3 else 0
+        )
+
+    def forward(self, x):
+        x = self.final_block1(x)
+        x = self.final_block_om(x)
+        x = self.final_layer_om(x)
+        return x
 
 
 def get_pose_net(cfg, is_train, **kwargs):

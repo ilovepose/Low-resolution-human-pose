@@ -58,6 +58,7 @@ def create_logger(cfg, cfg_name, phase='train'):
 
 
 def get_optimizer(cfg, model):
+
     base_params, final_params = [], []
     for name, param in model.named_parameters():
         if 'final' in name:
@@ -75,17 +76,18 @@ def get_optimizer(cfg, model):
             nesterov=cfg.TRAIN.NESTEROV
         )
     elif cfg.TRAIN.OPTIMIZER == 'adam':
+        # optimizer = optim.Adam(
+        #     [
+        #         {'params': base_params, 'lr': cfg.TRAIN.LR*0.5},
+        #         {'params': final_params}
+        #     ],
+        #     lr=cfg.TRAIN.LR
+        # )
         optimizer = optim.Adam(
-            [
-                {'params': base_params, 'lr': cfg.TRAIN.LR*0.5},
-                {'params': final_params}
-            ],
+            model.parameters(),
             lr=cfg.TRAIN.LR
         )
-        #optimizer = optim.Adam(
-        #    model.parameters(),
-        #    lr=cfg.TRAIN.LR
-        #)
+
     return optimizer
 
 

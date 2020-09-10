@@ -66,7 +66,6 @@ class COCODataset(JointsDataset):
         self.image_height = cfg.MODEL.IMAGE_SIZE[1]
         self.aspect_ratio = self.image_width * 1.0 / self.image_height
         self.pixel_std = 200
-        self.offset_output = cfg.OFF_OUT
 
         self.coco = COCO(self._get_ann_file_keypoint())
 
@@ -170,7 +169,7 @@ class COCODataset(JointsDataset):
             x2 = np.min((width - 1, x1 + np.max((0, w - 1))))
             y2 = np.min((height - 1, y1 + np.max((0, h - 1))))
             if obj['area'] > 0 and x2 >= x1 and y2 >= y1:
-                obj['clean_bbox'] = [x1, y1, x2-x1+1, y2-y1+1]
+                obj['clean_bbox'] = [x1, y1, x2-x1, y2-y1]
                 valid_objs.append(obj)
         objs = valid_objs
 
@@ -216,8 +215,8 @@ class COCODataset(JointsDataset):
 
     def _xywh2cs(self, x, y, w, h):
         center = np.zeros((2), dtype=np.float32)
-        center[0] = x + (w - 1) * 0.5
-        center[1] = y + (h - 1) * 0.5
+        center[0] = x + w * 0.5
+        center[1] = y + h * 0.5
 
         if w > self.aspect_ratio * h:
             h = w * 1.0 / self.aspect_ratio

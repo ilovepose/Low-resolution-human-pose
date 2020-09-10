@@ -13,6 +13,8 @@ import argparse
 import os
 import pprint
 import shutil
+import random
+import numpy as np
 
 import torch
 import torch.nn.parallel
@@ -119,7 +121,12 @@ def main():
     criterion = JointsOffsetLoss(
         use_target_weight=cfg.LOSS.USE_TARGET_WEIGHT,
         offset_weight=cfg.LOSS.OFFSET_WEIGHT,
-        smooth_l1=cfg.LOSS.OFF_SMOOTH_L1,
+        pixel_hm=cfg.LOSS.PIXEL_HM,
+        pred_mask=cfg.LOSS.PRED_MASK,
+        gt_mask=cfg.LOSS.GT_MASK,
+        alpha=cfg.ALPHA, beta=cfg.BETA, gama=cfg.GAMA,
+        smooth_l1=cfg.LOSS.SMOOTH_L1,
+        bce=cfg.LOSS.BCE,
     ).cuda()
 
     # Data loading code

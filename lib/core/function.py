@@ -38,17 +38,23 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
 
     # switch to train mode
     model.train()
+    if config.TRAIN.FINETUNE_HM or config.TRAIN.FINETUNE_OM:
+        model.module.freeze_weights(config.TRAIN.FINETUNE_HM,
+                                    config.TRAIN.FINETUNE_OM)
 
     end = time.time()
-    for i, (input, target, target_offset, target_weight, meta) in enumerate(train_loader):
+    for i, (input, target, target_offset, mask_01, mask_g, target_weight, meta) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
         # compute output
         outputs, hm_hps = model(input)
-
+        # mask = binary_mask(outputs.detach().cpu().numpy())
+        # target_mask = target_mask * mask
         target = target.cuda(non_blocking=True)
         target_offset = target_offset.cuda(non_blocking=True)
+        mask_01 = mask_01.cuda(non_blocking=True)
+        mask_g = mask_g.cuda(non_blocking=True)
         target_weight = target_weight.cuda(non_blocking=True)
 
         if isinstance(outputs, list):
@@ -57,7 +63,8 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
                 loss += criterion(output, target, target_weight)
         else:
             output = outputs
-            loss = criterion(output, hm_hps, target, target_offset, target_weight, epoch)
+            loss = criterion(output, hm_hps, target, target_offset,
+                             mask_01, mask_g, target_weight)
 
         # compute gradient and do update step
         optimizer.zero_grad()
@@ -71,7 +78,6 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
                                           hm_hps.detach().cpu().numpy(),
                                           target.detach().cpu().numpy(),
                                           target_offset.detach().cpu().numpy(),
-                                          config.OFF_OUT,
                                           stride, config.DATASET.LOCREF_STDEV)
 
         acc.update(avg_acc, cnt)
@@ -128,8 +134,7 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
     idx = 0
     with torch.no_grad():
         end = time.time()
-        for i, (input, target, target_offset, target_weight, meta) in enumerate(val_loader):
-            # d = {'target': target, 'target_off': target_offset, 'target_weight': target_weight, 'meta': meta}
+        for i, (input, target, target_offset, mask_01, mask_g, target_weight, meta) in enumerate(val_loader):
             # compute output
             outputs, output_offsets = model(input)
             if isinstance(outputs, list):
@@ -141,9 +146,9 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
 
             if config.TEST.FLIP_TEST:
                 # this part is ugly, because pytorch has not supported negative index
-                # input_flipped = model(input[:, :, :, ::-1])
-                input_flipped = np.flip(input.cpu().numpy(), 3).copy()
-                input_flipped = torch.from_numpy(input_flipped).cuda()
+                # input_flipped = np.flip(input.cpu().numpy(), 3).copy()
+                # input_flipped = torch.from_numpy(input_flipped).cuda()
+                input_flipped = input.flip(3)
                 outputs_flipped, output_offsets_flipped = model(input_flipped)
 
                 if isinstance(outputs_flipped, list):
@@ -157,12 +162,12 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
                 output_flipped = torch.from_numpy(output_flipped.copy()).cuda()
 
                 offset_flipped = offset_flipped.cpu().numpy()
-                offset_flipped[:, 0:2*config.MODEL.NUM_JOINTS:2, :, :] = flip_back(
-                                            -offset_flipped[:, 0:2*config.MODEL.NUM_JOINTS:2, :, :],
-                                            val_dataset.flip_pairs)  # flip offset_x with multiplying -1
-                offset_flipped[:, 1:2 * config.MODEL.NUM_JOINTS:2, :, :] = flip_back(
-                                            offset_flipped[:, 1:2 * config.MODEL.NUM_JOINTS:2, :, :],
-                                            val_dataset.flip_pairs)  # flip offset_y without multiplying -1
+                offset_flipped[:, 0::2, :, :] = flip_back(
+                    -offset_flipped[:, 0::2, :, :],
+                    val_dataset.flip_pairs)
+                offset_flipped[:, 1::2, :, :] = flip_back(
+                    offset_flipped[:, 1::2, :, :],
+                    val_dataset.flip_pairs)
                 offset_flipped = torch.from_numpy(offset_flipped.copy()).cuda()
 
                 output = (output + output_flipped) * 0.5
@@ -170,20 +175,22 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
 
             target = target.cuda(non_blocking=True)
             target_offset = target_offset.cuda(non_blocking=True)
+            mask_01 = mask_01.cuda(non_blocking=True)
+            mask_g = mask_g.cuda(non_blocking=True)
             target_weight = target_weight.cuda(non_blocking=True)
 
-            loss = criterion(output, output_offset, target, target_offset, target_weight, epoch)
+            loss = criterion(output, output_offset, target, target_offset,
+                             mask_01, mask_g, target_weight)
 
             num_images = input.size(0)
-            locref_stdev = config.DATASET.LOCREF_STDEV if not config.CIRCLE_MASK else config.MODEL.SIGMA*3*stride[np.newaxis, np.newaxis, :]
+
             # measure accuracy and record loss
             losses.update(loss.item(), num_images)
             _, avg_acc, cnt, pred = accuracy2(output.detach().cpu().numpy(),
                                               output_offset.detach().cpu().numpy(),
                                               target.detach().cpu().numpy(),
                                               target_offset.detach().cpu().numpy(),
-                                              config.OFF_OUT,
-                                              stride, locref_stdev)
+                                              stride, config.DATASET.LOCREF_STDEV)
 
             acc.update(avg_acc, cnt)
 
@@ -195,16 +202,22 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
             s = meta['scale'].numpy()
             score = meta['score'].numpy()
 
-            preds, maxvals = get_final_preds_offset(
-                config.OFF_OUT, output.clone().cpu().numpy(),
-                output_offset.clone().cpu().numpy(), locref_stdev,
-                c, s, stride, in_size, out_size
-            )
-
-            #d = {'target': target, 'target_off': target_offset, 'target_weight': target_weight, 'meta': meta}
-            #d.update({'output': output, 'output_offset': output_offset, 'preds': preds, })
-            #d.update({'stride': stride, 'in_size': in_size, 'out_size': out_size, 'loss': loss}); ps(d);
-            #print('save!'); sys.exit(0)
+            preds, maxvals = get_final_preds_offset(output.clone().cpu().numpy(),
+                output_offset.clone().cpu().numpy(), config.DATASET.LOCREF_STDEV,
+                c, s, stride, in_size, out_size)
+            #d = {'target': target.detach().cpu().numpy(),
+            #     'target_off': target_offset.detach().cpu().numpy(),
+            #     'target_mask': target_mask.detach().cpu().numpy(),
+            #     'target_ce': target_mask.detach().cpu().numpy(),
+            #     'target_weight': target_weight.detach().cpu().numpy(),
+            #     'meta': meta}
+            #d.update({'output': output.detach().cpu().numpy(),
+            #          'output_offset': output_offset.detach().cpu().numpy(),
+            #          'output_flipped': output_flipped.detach().cpu().numpy(),
+            #          'offset_flipped': offset_flipped.detach().cpu().numpy()})
+            #d.update({'input': input.detach().cpu().numpy(),
+            #          'input_flipped': input_flipped.detach().cpu().numpy()})
+            #ps(d); print('save!'); sys.exit(0)
             all_preds[idx:idx + num_images, :, 0:2] = preds[:, :, 0:2]
             all_preds[idx:idx + num_images, :, 2:3] = maxvals
             # double check this all_boxes parts
@@ -331,3 +344,23 @@ class AverageMeter2(AverageMeter):
                 self.avgs[i] = self.sum[i] / self.count[i]
         self.val = self.vals[0]
         self.avg = self.avgs[0]
+
+
+def binary_mask(batch_heatmaps):
+    assert isinstance(batch_heatmaps, np.ndarray), \
+        'batch_heatmaps should be numpy.ndarray'
+    assert batch_heatmaps.ndim == 4, 'batch_images should be 4-ndim'
+
+    batch_size = batch_heatmaps.shape[0]
+    num_joints = batch_heatmaps.shape[1]
+    width = batch_heatmaps.shape[3]
+    heatmaps_reshaped = batch_heatmaps.reshape((batch_size, num_joints, -1))
+    mask_reshaped = np.zeros_like(heatmaps_reshaped)
+    idx = np.argmax(heatmaps_reshaped, 2)
+
+    for b in range(batch_size):
+        for k in range(num_joints):
+            mask_reshaped[b, k, int(idx[b,k])] = 1
+    mask = mask_reshaped.reshape((batch_size, num_joints, -1, width))
+
+    return mask

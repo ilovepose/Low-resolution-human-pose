@@ -13,164 +13,174 @@ import torch
 import torch.nn as nn
 
 
-def _neg_loss(pred, gt):
-    """
-    Modified focal loss. Exactly the same as CornerNet.
-    Runs faster and costs a little bit more memory
-    :param pred: (batch x joints x h x w)
-    :param gt: (batch x joints x h x w)
-    """
-    alpha = 0.1
-    beta  = 0.02
-    thre  = 0.01
-
-    #pos_inds = gt.gt(thre).float()  # gt > thre
-    #neg_inds = gt.le(thre).float()  # gt <= 1
-
-    #focal_weights = torch.pow(1-pred+alpha, 2)*pos_inds + \
-    #                torch.pow(pred+beta, 2)*neg_inds
-
-    #st = torch.where(torch.ge(gt, 0.01), pred-alpha, 1-pred-beta)
-    #focal_weights = torch.abs(1. - st)
-    zeros = torch.zeros_like(pred)
-    st = torch.where(torch.ge(gt, 0.01), zeros+alpha, zeros+beta)
-    focal_weights = torch.abs(gt - pred)+st
-
-    focal_l2 = torch.pow(pred - gt, 2) * focal_weights.detach()
-    loss = focal_l2.mean()
-    return loss
-
-
-class FocalL2Loss(nn.Module):
-    """nn.Module warpper for focal loss"""
-    def __init__(self):
-        super(FocalL2Loss, self).__init__()
-        self.neg_loss = _neg_loss
-
-    def forward(self, out, target):
-        return self.neg_loss(out, target)
-
-
-class JointsMSELoss(nn.Module):
-    def __init__(self, use_target_weight):
-        super(JointsMSELoss, self).__init__()
-        self.criterion = nn.MSELoss(reduction='mean')
-        self.use_target_weight = use_target_weight
-
-    def forward(self, output, target, target_weight):
-        batch_size = output.size(0)
-        num_joints = output.size(1)
-        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
-        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
-        loss = 0
-
-        for idx in range(num_joints):
-            heatmap_pred = heatmaps_pred[idx].squeeze()
-            heatmap_gt = heatmaps_gt[idx].squeeze()
-            if self.use_target_weight:
-                loss += 0.5 * self.criterion(
-                    heatmap_pred.mul(target_weight[:, idx]),
-                    heatmap_gt.mul(target_weight[:, idx])
-                )
-            else:
-                loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
-
-        return loss / num_joints
-
-
-class JointsOHKMMSELoss(nn.Module):
-    def __init__(self, use_target_weight, topk=8):
-        super(JointsOHKMMSELoss, self).__init__()
-        self.criterion = nn.MSELoss(reduction='none')
-        self.use_target_weight = use_target_weight
-        self.topk = topk
-
-    def ohkm(self, loss):
-        ohkm_loss = 0.
-        for i in range(loss.size()[0]):
-            sub_loss = loss[i]
-            topk_val, topk_idx = torch.topk(
-                sub_loss, k=self.topk, dim=0, sorted=False
-            )
-            tmp_loss = torch.gather(sub_loss, 0, topk_idx)
-            ohkm_loss += torch.sum(tmp_loss) / self.topk
-        ohkm_loss /= loss.size()[0]
-        return ohkm_loss
-
-    def forward(self, output, target, target_weight):
-        batch_size = output.size(0)
-        num_joints = output.size(1)
-        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
-        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
-
-        loss = []
-        for idx in range(num_joints):
-            heatmap_pred = heatmaps_pred[idx].squeeze()
-            heatmap_gt = heatmaps_gt[idx].squeeze()
-            if self.use_target_weight:
-                loss.append(0.5 * self.criterion(
-                    heatmap_pred.mul(target_weight[:, idx]),
-                    heatmap_gt.mul(target_weight[:, idx])
-                ))
-            else:
-                loss.append(
-                    0.5 * self.criterion(heatmap_pred, heatmap_gt)
-                )
-
-        loss = [l.mean(dim=1).unsqueeze(dim=1) for l in loss]
-        loss = torch.cat(loss, dim=1)
-
-        return self.ohkm(loss)
-
-
 class JointsOffsetLoss(nn.Module):
-    def __init__(self, use_target_weight, offset_weight, smooth_l1):
+    def __init__(self, use_target_weight, offset_weight,
+                 pixel_hm, pred_mask, gt_mask,
+                 alpha, beta, gama, smooth_l1, bce):
         super(JointsOffsetLoss, self).__init__()
-        self.use_target_weight=use_target_weight
+        self.use_target_weight = use_target_weight
         self.offset_weight = offset_weight
-        self.criterion = FocalL2Loss()#  nn.MSELoss(reduction='mean')
+        self.use_pixel_hm = pixel_hm
+        self.use_pred_mask = pred_mask
+        self.use_gt_mask = gt_mask
+        self.alpha = alpha
+        self.beta = beta
+        self.gama = gama
+        self.criterion = nn.MSELoss(reduction='mean')
         self.criterion_offset = nn.SmoothL1Loss(reduction='mean') if smooth_l1 else nn.L1Loss(reduction='mean')
 
-    def forward(self, output, hm_hps, target, target_offset, target_weight, epoch):
+
+    def forward(self, output, hm_hps, target, target_offset,
+                mask_01, mask_g, target_weight):
         """
         calculate loss
         :param output: [batch, joints, height, width]
         :param hm_hps: [batch, 2*joints, height, width]
         :param target: [batch, joints, height, width]
         :param target_offset: [batch, 2*joints, height, width]
-        :param target_weight: [batch, joints]
-        :param stride: downsample ratio
-        :return: loss
+        :param mask_01: [batch, joints, height, width]
+        :param mask_g: [batch, joints, height, width]
+        :param target_weight: [batch, joints, 1]
+        :return: loss=joint_loss+weight*offset_loss
         """
-        # if epoch==250: self.criterion = FocalL2Loss()
-        batch_size = output.size(0)
-        num_joints = output.size(1)
+        batch_size, num_joints, _, _ = output.shape
 
-        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
-        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
+        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, dim=1)
+        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, dim=1)
         offsets_pred = hm_hps.reshape((batch_size, 2*num_joints, -1)).split(2, dim=1)
         offsets_gt = target_offset.reshape((batch_size, 2*num_joints, -1)).split(2, dim=1)
 
-        joint_loss, offset_loss = 0, 0
+        # focal weight on heat map
+        if self.use_pixel_hm:
+            mask_hm = self._focal_pixel_weight(output, target)
+            mask_hm = mask_hm.reshape((batch_size, num_joints, -1)).split(1, dim=1)
+        else:
+            mask_hm = [torch.Tensor([1.0]).cuda() for _ in range(num_joints)]
+
+        # focal mask on offset map
+        if self.use_pred_mask:
+            mask_om = output.detach() * mask_01
+            mask_om_normalize = self._mask_renormalize(mask_om)
+            mask_om = mask_om_normalize * mask_01
+        elif self.use_gt_mask:
+            mask_om = mask_g
+        else:
+            mask_om = mask_01  # 0-1 mask or gaussian mask
+        mask_om = mask_om.reshape((batch_size, num_joints, -1)).split(1, dim=1)
+
+        del batch_size, _
+
+        joint_l2_loss, offset_loss = 0.0, 0.0
 
         for idx in range(num_joints):
-            offset_pred = offsets_pred[idx] * heatmaps_gt[idx]  # [batch_size, 2, h*w]
-            offset_gt = offsets_gt[idx] * heatmaps_gt[idx]  # [batch_size, 2, h*w]
-            heatmap_pred = heatmaps_pred[idx].squeeze()  # [batch_size, h*w]
-            heatmap_gt = heatmaps_gt[idx].squeeze()  # [batch_size, h*w]
+            offset_pred = offsets_pred[idx] * mask_om[idx]  # [batch_size, 2, h*w]
+            offset_gt = offsets_gt[idx] * mask_om[idx]      # [batch_size, 2, h*w]
+            heatmap_pred = heatmaps_pred[idx].squeeze() * mask_hm[idx].squeeze()  # [batch_size, h*w]
+            heatmap_gt = heatmaps_gt[idx].squeeze() * mask_hm[idx].squeeze()      # [batch_size, h*w]
+
             if self.use_target_weight:
-                joint_loss  += 0.5 * self.criterion(
+                joint_l2_loss += 0.5 * self.criterion(
                     heatmap_pred.mul(target_weight[:, idx]),
                     heatmap_gt.mul(target_weight[:, idx])
                 )
-                offset_loss += 0.5 * self.criterion_offset(
+                offset_loss += self.criterion_offset(
                     offset_pred.mul(target_weight[:, idx].unsqueeze(2)),
-                    offset_gt.mul(target_weight[:, idx].unsqueeze(2))
+                    offset_gt.mul(target_weight[:, idx, None])
                 )
             else:
-                joint_loss  += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
-                offset_loss += 0.5 * self.criterion_offset(offset_pred, offset_gt)
+                joint_l2_loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
+                offset_loss += self.criterion_offset(offset_pred, offset_gt)
 
-        loss = joint_loss + self.offset_weight * offset_loss
+        loss = joint_l2_loss + self.offset_weight * offset_loss
 
         return loss / num_joints
+
+    def _focal_pixel_weight(self, pred, gt):
+        """
+        Modified focal loss. Exactly the same as CornerNet.
+        Runs faster and costs a little bit more memory
+        :param pred: (batch x joints x h x w)
+        :param gt: (batch x joints x h x w)
+        :return: focal_pixel_weight rescaled to [0, 1]
+        """
+        zeros = torch.zeros_like(pred)
+        ase=torch.abs(pred-gt)
+        exp_ase=torch.exp(4*ase)
+        focal_pixel_hm = torch.where(torch.ge(gt, 0.3), exp_ase, zeros+self.beta)  # zeros+self.alpha
+        # focal_pixel_hm = torch.where(torch.ge(gt, 0.01), pred - self.alpha, 1 - pred - self.beta)
+        # focal_pixel_hm = torch.abs(1. - focal_pixel_hm)  # [b,c,h, w]
+        return focal_pixel_hm
+
+    def _focal_softmax(self, output, target, thres=0.2):
+        mask = target.gt(thres).float()  # [batch, height*width]
+        output_softmax = self._masked_softmax(output, mask)
+        return output_softmax, mask
+
+    @staticmethod
+    def _masked_softmax(inp, mask):
+        """
+        softmax with mask
+        :param inp: predicted heat map, [batch, height*width]
+        :param mask: 0-1 matrix, [batch, height*width]
+        :return:
+        """
+        inp_exp = torch.exp(inp)
+        inp_exp_masked = inp_exp * mask
+        inp_exp_sum = torch.sum(inp_exp_masked, dim=-1, keepdim=True)
+        return (inp_exp_masked + 1e-5) / (inp_exp_sum + 1e-5)
+
+    def _mask_renormalize(self, mask):
+        """
+        rescale value to [0, 1]
+        :param mask: [B, C, H, W]
+        :return:
+        """
+        max_val, _ = self._find_extremum(mask, maxmin='max')  # [B, C]
+        min_val, _ = self._find_extremum(mask, maxmin='min')  # [B, C]
+        max_dist = max_val - min_val
+        del max_val
+        return (mask - min_val[..., None, None]) / (max_dist[..., None, None] + 1e-5)
+
+    @staticmethod
+    def _find_extremum(matrix, maxmin, loc=False):
+        """
+        :param matrix:
+        :param loc:
+        :return:
+        max_val: [B, C]
+        max_ind: [B, C, 2] which are (xs, ys)
+        """
+        if maxmin == 'max':
+            val, ind_x = torch.max(matrix,  dim=3)  # [B, C, H]
+            val, ind_y = torch.max(val,    dim=2)  # [B, C]
+        elif maxmin == 'min':
+            val, ind_x = torch.min(matrix, dim=3)  # [B, C, H]
+            val, ind_y = torch.min(val,   dim=2)  # [B, C]
+        else:
+            raise NameError
+
+        ind = None
+        if loc:
+            batch_size, num_channel, _, _ = matrix.shape
+            ind = torch.empty((batch_size, num_channel, 2))  # [B, C, 2]
+            ind[:, :, 1] = ind_y
+            indx = torch.gather(ind_x, dim=2, index=ind_y.unsqueeze(dim=2))
+            ind[:, :, 0] = indx.squeeze(dim=2)
+        return val, ind
+
+
+class CrossEntropyLoss(nn.Module):
+    def __init__(self):
+        super(CrossEntropyLoss, self).__init__()
+
+    def forward(self, output, target, mask=None):
+        """
+        calculate local-CE loss with output and target
+        :param output: [batch, width*height]，最小值不能为0
+        :param target: [batch, width*height]
+        :return:
+        """
+        loss = -target * torch.log(output+1e-5)
+        if mask is not None:
+            loss *= mask
+        return torch.mean(loss)

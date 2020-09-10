@@ -23,10 +23,58 @@ from torch.utils.data import Dataset
 from utils.transforms import get_affine_transform
 from utils.transforms import affine_transform
 from utils.transforms import fliplr_joints
-from utils.image import gaussian_radius, draw_dense_reg
+from utils.image import draw_dense_reg
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_warpmatrix(theta,size_input,size_dst,size_target):
+    '''
+
+    :param theta: angle
+    :param size_input:[w,h]
+    :param size_dst: [w,h]
+    :param size_target: [w,h]/200.0
+    :return:
+    '''
+    size_target = size_target * 200.0
+    theta = theta / 180.0 * math.pi
+    matrix = np.zeros((2,3),dtype=np.float32)
+    scale_x = size_target[0]/size_dst[0]
+    scale_y = size_target[1]/size_dst[1]
+    matrix[0, 0] = math.cos(theta) * scale_x
+    matrix[0, 1] = math.sin(theta) * scale_y
+    matrix[0, 2] = -0.5 * size_target[0] * math.cos(theta) - 0.5 * size_target[1] * math.sin(theta) + 0.5 * size_input[0]
+    matrix[1, 0] = -math.sin(theta) * scale_x
+    matrix[1, 1] = math.cos(theta) * scale_y
+    matrix[1, 2] = 0.5*size_target[0]*math.sin(theta)-0.5*size_target[1]*math.cos(theta)+0.5*size_input[1]
+    return matrix
+
+
+def rotate_points(src_points, angle,c, dst_img_shape,size_target, do_clip=True):
+    # src_points: (num_points, 2)
+    # img_shape: [h, w, c]
+    size_target = size_target * 200.0
+    src_img_center = c
+    scale_x = (dst_img_shape[0]-1.0)/size_target[0]
+    scale_y = (dst_img_shape[1]-1.0)/size_target[1]
+    radian = angle / 180.0 * math.pi
+    radian_sin = -math.sin(radian)
+    radian_cos = math.cos(radian)
+    dst_points = np.zeros(src_points.shape, dtype=src_points.dtype)
+    src_x = src_points[:, 0] - src_img_center[0]
+    src_y = src_points[:, 1] - src_img_center[1]
+    dst_points[:, 0] = radian_cos * src_x + radian_sin * src_y
+    dst_points[:, 1] = -radian_sin * src_x + radian_cos * src_y
+    dst_points[:, 0] += size_target[0]*0.5
+    dst_points[:, 1] += size_target[1]*0.5
+    dst_points[:, 0] *= scale_x
+    dst_points[:, 1] *= scale_y
+    if do_clip:
+        dst_points[:, 0] = np.clip(dst_points[:, 0], 0, dst_img_shape[1] - 1)
+        dst_points[:, 1] = np.clip(dst_points[:, 1], 0, dst_img_shape[0] - 1)
+    return dst_points
 
 
 class JointsDataset(Dataset):
@@ -50,24 +98,18 @@ class JointsDataset(Dataset):
         self.prob_half_body = cfg.DATASET.PROB_HALF_BODY
         self.color_rgb = cfg.DATASET.COLOR_RGB
 
-        self.target_type = cfg.MODEL.TARGET_TYPE
-        self.image_size = np.array(cfg.MODEL.IMAGE_SIZE)
+        self.target_type = cfg.MODEL.TARGET_TYPE  # gaussian or binary
+        self.image_size = np.array(cfg.MODEL.IMAGE_SIZE)  # 
         self.heatmap_size = np.array(cfg.MODEL.HEATMAP_SIZE)
-        self.feat_stride = self.image_size / self.heatmap_size
+        self.feat_stride = (self.image_size-1.0) / (self.heatmap_size-1.0)
         self.sigma = cfg.MODEL.SIGMA
         self.use_different_joints_weight = cfg.LOSS.USE_DIFFERENT_JOINTS_WEIGHT
         self.joints_weight = 1
         self.locref_stdev = cfg.DATASET.LOCREF_STDEV
-        self.circle_mask = cfg.CIRCLE_MASK
-
+        self.mask_sigma = cfg.MODEL.MASK_SIGMA
+        self.kpd = cfg.LOSS.KPD
         self.transform = transform
         self.db = []
-
-        self.c = [.26, .25, .25, .35, .35, .79, .79, .72, .72, .62,
-                  .62, 1.07, 1.07, .87, .87, .89, .89]
-        self.x = np.arange(0, self.heatmap_size[0], 1, np.float32)
-        self.y = np.arange(0, self.heatmap_size[1], 1, np.float32)
-        self.y = self.y[:, np.newaxis]
 
     def _get_db(self):
         raise NotImplementedError
@@ -100,8 +142,8 @@ class JointsDataset(Dataset):
         left_top = np.amin(selected_joints, axis=0)
         right_bottom = np.amax(selected_joints, axis=0)
 
-        w = right_bottom[0] - left_top[0] + 1
-        h = right_bottom[1] - left_top[1] + 1
+        w = right_bottom[0] - left_top[0]
+        h = right_bottom[1] - left_top[1]
 
         if w > self.aspect_ratio * h:
             h = w * 1.0 / self.aspect_ratio
@@ -177,28 +219,24 @@ class JointsDataset(Dataset):
                     joints, joints_vis, data_numpy.shape[1], self.flip_pairs)
                 c[0] = data_numpy.shape[1] - c[0] - 1
 
-        joints_heatmap = joints.copy()
-        trans = get_affine_transform(c, s, r, self.image_size)
-        trans_heatmap = get_affine_transform(c, s, r, self.heatmap_size)
-
-        input = cv2.warpAffine(
-            data_numpy,
-            trans,
-            (int(self.image_size[0]), int(self.image_size[1])),
-            flags=cv2.INTER_LINEAR)
+        trans = get_warpmatrix(r, c*2.0, self.image_size-1.0, s)
+        input = cv2.warpAffine(data_numpy, trans, (int(self.image_size[0]), int(self.image_size[1])),
+                               flags=cv2.WARP_INVERSE_MAP | cv2.INTER_LINEAR)
+        joints[:, 0:2] = rotate_points(joints[:, 0:2], r, c, self.image_size, s, False)
 
         if self.transform:
             input = self.transform(input)
 
         for i in range(self.num_joints):
-            if joints_vis[i, 0] > 0.0:
-                joints[i, 0:2] = affine_transform(joints[i, 0:2], trans)
-                joints_heatmap[i, 0:2] = affine_transform(joints_heatmap[i, 0:2], trans_heatmap)
+            if joints_vis[i, 0] == 0.0:
+                joints[i, 0:2] = np.array([0.0, 0.0])
 
-        target, target_offset, target_weight = self.generate_target(joints, joints_heatmap, joints_vis)
+        target, target_offset, mask_01, mask_g, target_weight = self.generate_target(joints, joints_vis)
 
         target = torch.from_numpy(target)
         target_offset = torch.from_numpy(target_offset)
+        mask_01 = torch.from_numpy(mask_01)
+        mask_g = torch.from_numpy(mask_g)
         target_weight = torch.from_numpy(target_weight)
 
         meta = {
@@ -206,7 +244,6 @@ class JointsDataset(Dataset):
             'filename': filename,
             'imgnum': imgnum,
             'joints': joints,
-            'joints_heatmap': joints_heatmap,
             'joints_vis': joints_vis,
             'center': c,
             'scale': s,
@@ -214,7 +251,7 @@ class JointsDataset(Dataset):
             'score': score
         }
 
-        return input, target, target_offset, target_weight, meta
+        return input, target, target_offset, mask_01, mask_g, target_weight, meta
 
     def select_data(self, db):
         db_selected = []
@@ -249,78 +286,65 @@ class JointsDataset(Dataset):
         logger.info('=> num selected db: {}'.format(len(db_selected)))
         return db_selected
 
-    def generate_target(self, joints, joints_heatmap, joints_vis):
+    def generate_target(self, joints, joints_vis):
         """
-        generate heatmap according to joints, joints_heatmap and joints_vis
+        generate heat-map according to joints, joints_heat-map and joints_vis
         :param joints: joint location in input size
-        :param joints_heatmap:
         :param joints_vis: visible(1) or not(0)
         :return:
-        hm_hp: joint heatmap
+        hm_hp: joint heat-map
         hm_hp_offset: joint offset
         target_weight: visible(1) or not(0)
         """
         target_weight = np.ones((self.num_joints, 1), dtype=np.float32)
         target_weight[:, 0] = joints_vis[:, 0]
 
-        assert self.target_type == 'gaussian', \
-            'Only support gaussian map now!'
+        hm = np.zeros((self.num_joints, self.heatmap_size[1], self.heatmap_size[0]),
+                      dtype=np.float32)
+        om = np.zeros((2*self.num_joints, self.heatmap_size[1], self.heatmap_size[0]),
+                      dtype=np.float32)
+        mask = np.zeros((self.num_joints, self.heatmap_size[1], self.heatmap_size[0]),
+                        dtype=np.float32)
+        mask_g = np.zeros((self.num_joints, self.heatmap_size[1], self.heatmap_size[0]),
+                         dtype=np.float32)
 
-        if self.target_type == 'gaussian':
-            hm_hp = np.zeros((self.num_joints,
-                              self.heatmap_size[1],
-                              self.heatmap_size[0]),
-                             dtype=np.float32)
-            hm_hp_offset = np.zeros((2*self.num_joints,
-                                     self.heatmap_size[1],
-                                     self.heatmap_size[0]),
-                                    dtype=np.float32)
+        tmp_size = self.sigma * 3
 
-            tmp_size = self.sigma * 3
+        for joint_id in range(self.num_joints):
+            joints_hm = joints[joint_id, :2] / self.feat_stride
 
-            # calculate integer and offset coordinates
-            if self.offset_output:
-                joint_hm_int = (joints_heatmap[:, :2] + 0.5).astype(np.int8)
-                hp_offset = joints_heatmap[:, :2] - joint_hm_int  # 范围[-0.5, 0.5)
-                stride = np.array([1.0, 1.0])
-            else:
-                joint_hm_int = (joints[:, :2] / self.feat_stride).astype(np.int8)
-                hp_offset = joints[:, :2] - (joint_hm_int+0.5) * self.feat_stride  # 范围[-0.5*stride, 0.5*stride)
-                stride = self.feat_stride.copy()
+            target_weight[joint_id] = \
+                 self.adjust_target_weight(joints_hm, target_weight[joint_id], tmp_size)
 
-            for joint_id in range(self.num_joints):
-                target_weight[joint_id] = \
-                        self.adjust_target_weight(joint_hm_int[joint_id], target_weight[joint_id], tmp_size)
+            if not target_weight[joint_id]:
+                continue
 
-                if target_weight[joint_id] == 0:
-                    continue
+            # Generate gaussian heatmap and offset matrix
+            if target_weight[joint_id] > 0.5:
+                hm[joint_id], om[2*joint_id:2*joint_id+2], mask[joint_id], mask_g[joint_id] = \
+                    draw_dense_reg(self.heatmap_size,
+                                   joints_hm,
+                                   self.sigma,
+                                   self.locref_stdev,
+                                   self.mask_sigma,
+                                   self.kpd)
 
-                mu_x = joints_heatmap[joint_id][0]
-                mu_y = joints_heatmap[joint_id][1]
-
-                # Generate gaussian
-                if target_weight[joint_id] > 0.5:
-                    # generate offset matrix and heatmap
-                    draw_dense_reg(hm_hp_offset[2*joint_id:2*joint_id+2], hm_hp[joint_id],
-                                   joint_hm_int[joint_id], hp_offset[joint_id, :2],
-                                   tmp_size, stride, self.locref_stdev,
-                                   1.0, is_circle_mask=self.circle_mask)  #self.c[joint_id]
-                    mask = (hm_hp[joint_id]>0.0)
-                    hm_hp[joint_id] = np.exp(- ((self.x - mu_x) ** 2 + (self.y - mu_y) ** 2) / (2 * self.sigma ** 2))*mask
-            del stride
         if self.use_different_joints_weight:
             target_weight = np.multiply(target_weight, self.joints_weight)
 
-        return hm_hp, hm_hp_offset, target_weight
+        if self.target_type == 'binary':
+            hm = mask
+
+        return hm, om, mask, mask_g, target_weight
 
     def adjust_target_weight(self, joint, target_weight, tmp_size):
-        mu_x = joint[0]
-        mu_y = joint[1]
+        mu_x = int(joint[0] + 0.5)
+        mu_y = int(joint[1] + 0.5)
         # Check that any part of the gaussian is in-bounds
         ul = [int(mu_x - tmp_size), int(mu_y - tmp_size)]
         br = [int(mu_x + tmp_size + 1), int(mu_y + tmp_size + 1)]
         if ul[0] >= self.heatmap_size[0] or ul[1] >= self.heatmap_size[1] \
-                or br[0] < 0 or br[1] < 0:
+                or br[0] <= 0 or br[1] <= 0:
             # If not, just return the image as is
             target_weight = 0
 

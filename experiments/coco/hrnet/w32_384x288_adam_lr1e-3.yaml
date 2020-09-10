@@ -23,6 +23,7 @@ DATASET:
   SCALE_FACTOR: 0.35
   TEST_SET: 'val2017'
   TRAIN_SET: 'train2017'
+  LOCREF_STDEV: 1.5
 MODEL:
   INIT_WEIGHTS: true
   NAME: pose_hrnet
