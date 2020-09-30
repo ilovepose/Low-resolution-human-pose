@@ -11,7 +11,9 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
-
+import numpy as np
+from sklearn.mixture import GaussianMixture as GMM
+from core.inference import get_max_preds
 
 class JointsOffsetLoss(nn.Module):
     def __init__(self, use_target_weight, offset_weight,
@@ -28,7 +30,12 @@ class JointsOffsetLoss(nn.Module):
         self.gama = gama
         self.criterion = nn.MSELoss(reduction='mean')
         self.criterion_offset = nn.SmoothL1Loss(reduction='mean') if smooth_l1 else nn.L1Loss(reduction='mean')
-
+        self.gmm = GMM(n_components=1, covariance_type='full', random_state=0)
+        self.size = 7
+        x_std = np.arange(-int(self.size/2), int(self.size/2)+1)
+        mat = np.zeros([self.size, self.size, 2])
+        mat[:, :, 0], mat[:, :, 1] = np.meshgrid(x_std, x_std)
+        self.mat = mat.reshape([-1, 2])
 
     def forward(self, output, hm_hps, target, target_offset,
                 mask_01, mask_g, target_weight):
@@ -168,6 +175,39 @@ class JointsOffsetLoss(nn.Module):
             ind[:, :, 0] = indx.squeeze(dim=2)
         return val, ind
 
+    def gmm_mask(self, output, target, target_weight):
+        hm_pred = output.detach().cpu().numpy()
+        hm_gt = target.detach().cpu().numpy()
+        hm_width = hm_gt.shape[3]
+        hm_height = hm_gt.shape[2]
+        mask = np.zeros_like(hm_gt)
+        coords_pred, _ = get_max_preds(hm_pred)
+        coords_gt, _ = get_max_preds(hm_gt)
+        error = coords_pred - coords_gt
+        error = error.reshape([-1, 2])
+        visiable = target_weight.detach().cpu().numpy().reshape([-1])
+        invis_index = np.argwhere(visiable == 0)
+        error = np.delete(error, invis_index, axis=0)
+        mask_gmm = self.gmm.fit(error).score_samples(self.mat)
+        mask_gmm = np.exp(mask_gmm).reshape([self.size, self.size])
+        tmp_size = int(self.size / 2)  # 3
+        for batch_id in range(mask.shape[0]):
+            for joint_id in range(mask.shape[1]):
+                if target_weight[batch_id, joint_id] == 1:
+                    mu_x , mu_y = coords_gt[batch_id, joint_id]
+                    # Check that any part of the gaussian is in-bounds
+                    ul = [int(mu_x - tmp_size), int(mu_y - tmp_size)]
+                    br = [int(mu_x + tmp_size + 1), int(mu_y + tmp_size + 1)]
+                    # Usable gaussian range
+                    g_x = max(0, -ul[0]), min(br[0], hm_width) - ul[0]
+                    g_y = max(0, -ul[1]), min(br[1], hm_height) - ul[1]
+                    # Image range
+                    img_x = max(0, ul[0]), min(br[0], hm_width)
+                    img_y = max(0, ul[1]), min(br[1], hm_height)
+                    mask[batch_id, joint_id, img_y[0]:img_y[1], img_x[0]:img_x[1]] = \
+                        mask_gmm[g_y[0]:g_y[1], g_x[0]:g_x[1]]
+        mask = torch.from_numpy(mask).cuda(non_blocking=True)
+        return self._mask_renormalize(mask)
 
 class CrossEntropyLoss(nn.Module):
     def __init__(self):

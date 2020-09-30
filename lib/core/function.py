@@ -57,6 +57,9 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
         mask_g = mask_g.cuda(non_blocking=True)
         target_weight = target_weight.cuda(non_blocking=True)
 
+        # build GMM mask
+        mask_g = criterion.gmm_mask(outputs, target, target_weight)
+
         if isinstance(outputs, list):
             loss = criterion(outputs[0], target, target_weight)
             for output in outputs[1:]:
