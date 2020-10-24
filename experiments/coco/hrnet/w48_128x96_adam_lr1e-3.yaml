@@ -36,6 +36,7 @@ MODEL:
   - 24
   - 32
   SIGMA: 1
+  MASK_SIGMA: 1.0
   EXTRA:
     PRETRAINED_LAYERS:
     - 'conv1'
@@ -89,9 +90,19 @@ MODEL:
       - 192
       - 384
       FUSE_METHOD: SUM
+    FINAL_HM:
+      BLOCK: BASIC
+    FINAL_OM:
+      BLOCK: BASIC
 LOSS:
   USE_TARGET_WEIGHT: true
   OFFSET_WEIGHT: 1.0
+  PIXEL_HM: false
+  PRED_MASK: false
+  GT_MASK: true
+  SMOOTH_L1: false
+  BCE: false
+  KPD: 4.0
 TRAIN:
   BATCH_SIZE_PER_GPU: 64
   SHUFFLE: true
