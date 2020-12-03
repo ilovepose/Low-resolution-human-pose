@@ -30,13 +30,13 @@ MODEL:
   PRETRAINED: 'models/pytorch/imagenet/hrnet_w48-8ef0771d.pth'
   TARGET_TYPE: gaussian
   IMAGE_SIZE:
-  - 96
-  - 128
+  - 48
+  - 64
   HEATMAP_SIZE:
-  - 24
-  - 32
-  SIGMA: 1.0
-  MASK_SIGMA: 1.0
+  - 12
+  - 16
+  SIGMA: 0.5
+  MASK_SIGMA: 0.5
   EXTRA:
     PRETRAINED_LAYERS:
     - 'conv1'
@@ -77,10 +77,9 @@ MODEL:
       FUSE_METHOD: SUM
     STAGE4:
       NUM_MODULES: 3
-      NUM_BRANCHES: 4
+      NUM_BRANCHES: 3
       BLOCK: BASIC
       NUM_BLOCKS:
-      - 4
       - 4
       - 4
       - 4
@@ -88,7 +87,6 @@ MODEL:
       - 48
       - 96
       - 192
-      - 384
       FUSE_METHOD: SUM
     FINAL_HM:
       BLOCK: BASIC
@@ -104,7 +102,7 @@ LOSS:
   BCE: false
   KPD: 4.0
 TRAIN:
-  BATCH_SIZE_PER_GPU: 64
+  BATCH_SIZE_PER_GPU: 128
   SHUFFLE: true
   BEGIN_EPOCH: 0
   END_EPOCH: 210
@@ -120,7 +118,7 @@ TRAIN:
   MOMENTUM: 0.9
   NESTEROV: false
 TEST:
-  BATCH_SIZE_PER_GPU: 64
+  BATCH_SIZE_PER_GPU: 128
   COCO_BBOX_FILE: 'data/coco/person_detection_results/COCO_val2017_detections_AP_H_56_person.json'
   BBOX_THRE: 1.0
   IMAGE_THRE: 0.0

@@ -308,7 +308,7 @@ class JointsDataset(Dataset):
         mask_g = np.zeros((self.num_joints, self.heatmap_size[1], self.heatmap_size[0]),
                          dtype=np.float32)
 
-        tmp_size = self.sigma * 3
+        tmp_size = int(self.sigma * 3 + 0.5)
 
         for joint_id in range(self.num_joints):
             joints_hm = joints[joint_id, :2] / self.feat_stride

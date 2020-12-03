@@ -115,6 +115,8 @@ class COCODataset(JointsDataset):
         """ self.root / annotations / person_keypoints_train2017.json """
         prefix = 'person_keypoints' \
             if 'test' not in self.image_set else 'image_info'
+        if 'test' in self.image_set:
+            self.image_set = 'test-dev2017'
         return os.path.join(
             self.root,
             'annotations',
