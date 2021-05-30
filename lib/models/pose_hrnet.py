@@ -321,21 +321,21 @@ class PoseHighResolutionNet(nn.Module):
         self.stage4, pre_stage_channels_hm = self._make_stage(
             self.stage4_cfg, num_channels, multi_scale_output=False)
 
-        self.head_hm = HeadHeatMap(pre_stage_channels_hm[0],
-                                   cfg.MODEL.NUM_JOINTS,
-                                   cfg['MODEL']['EXTRA']['FINAL_HM']['BLOCK'],
-                                   extra.FINAL_CONV_KERNEL)
-
-        self.stage4om_cfg = cfg['MODEL']['EXTRA']['STAGE4OM']
-        num_channels = self.stage4om_cfg['NUM_CHANNELS']
-        block = blocks_dict[self.stage4om_cfg['BLOCK']]
+        self.stage4_om_cfg = cfg['MODEL']['EXTRA']['STAGE4OM']
+        num_channels = self.stage4_cfg['NUM_CHANNELS']
+        block = blocks_dict[self.stage4_cfg['BLOCK']]
         num_channels = [
             num_channels[i] * block.expansion for i in range(len(num_channels))
         ]
         self.transition3_om = self._make_transition_layer(
             pre_stage_channels, num_channels)
         self.stage4_om, pre_stage_channels_om = self._make_stage(
-            self.stage4om_cfg, num_channels, multi_scale_output=False)
+            self.stage4_om_cfg, num_channels, multi_scale_output=False)
+
+        self.head_hm = HeadHeatMap(pre_stage_channels_hm[0],
+                                   cfg.MODEL.NUM_JOINTS,
+                                   cfg['MODEL']['EXTRA']['FINAL_HM']['BLOCK'],
+                                   extra.FINAL_CONV_KERNEL)
 
         self.head_om = HeadOffsetMap(pre_stage_channels_om[0],
                                      2*cfg.MODEL.NUM_JOINTS,
