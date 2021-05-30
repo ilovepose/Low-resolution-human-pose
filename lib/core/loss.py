@@ -100,7 +100,7 @@ class JointsOffsetLoss(nn.Module):
 
         loss = joint_l2_loss + self.offset_weight * offset_loss
 
-        return loss / num_joints
+        return loss / num_joints, offset_loss / num_joints
 
     def _focal_pixel_weight(self, pred, gt):
         """

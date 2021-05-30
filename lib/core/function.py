@@ -66,7 +66,7 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
                 loss += criterion(output, target, target_weight)
         else:
             output = outputs
-            loss = criterion(output, hm_hps, target, target_offset,
+            loss, offset_loss = criterion(output, hm_hps, target, target_offset,
                              mask_01, mask_g, target_weight)
 
         # compute gradient and do update step
@@ -95,10 +95,11 @@ def train(config, train_loader, model, criterion, optimizer, epoch,
                   'Speed {speed:.1f} samples/s\t' \
                   'Data {data_time.val:.3f}s ({data_time.avg:.3f}s)\t' \
                   'Loss {loss.val:.5f} ({loss.avg:.5f})\t' \
-                  'Accuracy {acc.val:.3f} ({acc.avg:.3f})'.format(
+                  'Accuracy {acc.val:.3f} ({acc.avg:.3f})\t' \
+                  'Offset Loss {omloss:.5f}'.format(
                       epoch, i, len(train_loader), batch_time=batch_time,
                       speed=input.size(0)/batch_time.val,
-                      data_time=data_time, loss=losses, acc=acc)
+                      data_time=data_time, loss=losses, acc=acc, omloss= offset_loss.item())
             logger.info(msg)
 
             writer = writer_dict['writer']
@@ -182,7 +183,7 @@ def validate(config, val_loader, val_dataset, model, criterion, output_dir,
             mask_g = mask_g.cuda(non_blocking=True)
             target_weight = target_weight.cuda(non_blocking=True)
 
-            loss = criterion(output, output_offset, target, target_offset,
+            loss, offset_loss = criterion(output, output_offset, target, target_offset,
                              mask_01, mask_g, target_weight)
 
             num_images = input.size(0)
