@@ -4,9 +4,8 @@
 This is an official pytorch implementation of [*Low-resolution Human Pose Estimation*](https://arxiv.org/pdf/2109.09090.pdf). 
 
 This work bridges the learning gap between heatmap and offset field especially for low-resolution human pose estimation.
-51
 
-![Illustrating the architecture of the proposed DARK](/figures/CAL.png)
+![Illustrating the principle of the proposed CAL](/figures/CAL.png)
 
 ## Main Results
 
