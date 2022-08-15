@@ -1,64 +1,37 @@
-# Distribution Aware Coordinate Representation for Human Pose Estimation
-
-<p align="center">
-<b><i>Serving as a model-agnostic plug-in, DARK significantly improves the performance of a varietyof state-of-the-art human pose estimation models! </i></b>
-</p>
+# Low-resolution Human Pose Estimation
 
 ## Introduction
-This is an official pytorch implementation of [*Distribution Aware Coordinate Representation for Human Pose Estimation*](). 
+This is an official pytorch implementation of [*Low-resolution Human Pose Estimation*](https://arxiv.org/pdf/2109.09090.pdf). 
 
-This work fills the gap by studying the coordinate representation with a particular focus on the heatmap.
+This work bridges the learning gap between heatmap and offset field especially for low-resolution human pose estimation.
+51
 
-![Illustrating the architecture of the proposed DARK](/figures/DARK.png)
+![Illustrating the architecture of the proposed DARK](/figures/CAL.png)
 
 ## Main Results
 
-### Results on COCO val2017 with detector having human AP of 56.4 on COCO val2017 dataset
-| Baseline           | Input size | #Params | GFLOPs |    AP | Ap .5 | AP .75 | AP (M) | AP (L) |    AR |
-|--------------------|------------|---------|--------|-------|-------|--------|--------|--------|-------|
-| Hourglass(4 Blocks)             |  128×96 | 13.0M | 2.7 | 66.2 | 87.6 | 75.1 | 63.8 | 71.4 | 72.8 |
-| **Hourglass(4 Blocks) + DARK**  |  128×96 | 13.0M | 2.7 | 69.6 | 87.8 | 77.0 | 67.0 | 75.4 | 75.7 |
-| Hourglass(8 Blocks)             |  128×96 | 25.1M | 4.9 | 67.6 | 88.3 | 77.4 | 65.2 | 73.0 | 74.0 |
-| **Hourglass(8 Blocks) + DARK**  |  128×96 | 25.1M | 4.9 | 70.8 | 87.9 | 78.3 | 68.3 | 76.4 | 76.6 |
-| SimpleBaseline-R50              |  128×96 | 34.0M | 2.3 | 59.3 | 85.5 | 67.4 | 57.8 | 63.8 | 66.6 |
-| **SimpleBaseline-R50 + DARK**   |  128×96 | 34.0M | 2.3 | 62.6 | 86.1 | 70.4 | 60.4 | 67.9 | 69.5 |
-| SimpleBaseline-R101             |  128×96 | 53.0M | 3.1 | 58.8 | 85.3 | 66.1 | 57.3 | 63.4 | 66.1 |
-| **SimpleBaseline-R101 + DARK**  |  128×96 | 53.0M | 3.1 | 63.2 | 86.2 | 71.1 | 61.2 | 68.5 | 70.0 |
-| SimpleBaseline-R152             |  128×96 | 68.6M | 3.9 | 60.7 | 86.0 | 69.6 | 59.0 | 65.4 | 68.0 |
-| **SimpleBaseline-R152 + DARK**  |  128×96 | 68.6M | 3.9 | 63.1 | 86.2 | 71.6 | 61.3 | 68.1 | 70.0 |
-| HRNet-W32                       |  128×96 | 28.5M | 1.8 | 66.9 | 88.7 | 76.3 | 64.6 | 72.3 | 73.7 |
-| **HRNet-W32 + DARK**            |  128×96 | 28.5M | 1.8 | 70.7 | 88.9 | 78.4 | 67.9 | 76.6 | 76.7 |
-| HRNet-W48                       |  128×96 | 63.6M | 3.6 | 68.0 | 88.9 | 77.4 | 65.7 | 73.7 | 74.7 |
-| **HRNet-W48 + DARK**            |  128×96 | 63.6M | 3.6 | 71.9 | 89.1 | 79.6 | 69.2 | 78.0 | 77.9 |
-| HRNet-W32                       | 256×192 | 28.5M | 7.1 | 74.4 | 90.5 | 81.9 | 70.8 | 81.0 | 79.8 |
-| **HRNet-W32 + DARK**            | 256×192 | 28.5M | 7.1 | 75.6 | 90.5 | 82.1 | 71.8 | 82.8 | 80.8 |
-| HRNet-W32                       | 384×288 | 28.5M | 16.0 | 75.8 | 90.6 | 82.5 | 72.0 | 82.7 | 80.9 |
-| **HRNet-W32 + DARK**            | 384×288 | 28.5M | 16.0 | 76.6 | 90.7 | 82.8 | 72.7 | 83.9 | 81.5 |
-| HRNet-W48                       | 384×288 | 63.6M | 32.9 | 76.3 | 90.8 | 82.9 | 72.3 | 83.4 | 81.2 |
-| **HRNet-W48 + DARK**            | 384×288 | 63.6M | 32.9 | 76.8 | 90.6 | 83.2 | 72.8 | 84.0 | 81.7 |
+### Results on COCO val2017 with $64\times48$ input resolution setting
+| Method     | Backbone  |    AP | Ap.5 | AP.75 | AP(M) | AP(L) |   AR |
+|------------|-----------|-------|------|-------|-------|-------|------|
+| HRNet      | HRNet-W32 |  29.7 | 75.7 | 13.1 | 29.3 | 30.7 | 37.3
+| HRNet      | HRNet-W48 |  32.4 | 78.3 | 16.2 | 31.5 | 34.0 | 39.3
+| UDP        | HRNet-W32 |  47.4 | 80.5 | 50.6 | 47.7 | 47.7 | 53.8
+| UDP        | HRNet-W48 |  51.0 | 82.6 | 55.2 | 51.4 | 51.0 | 57.3
+| HRNet+SPSR | HRNet-W32 |  50.0 | 81.6 | 53.6 | 53.6 | 46.0 | 55.3
+| HRNet+SPSR | HRNet-W48 |  51.2 | 82.8 | 55.5 | 54.6 | 47.7 | 56.4
+| UDP+SPSR   | HRNet-W32 |  52.5 | 80.8 | 57.7 | 56.2 | 48.3 | 57.4
+| UDP+SPSR   | HRNet-W48 |  54.1 | 82.4 | 59.0 | 56.9 | 50.6 | 59.4 |
+| CAL        | HRNet-W32 | **58.4** | **86.6** | **65.1** | **57.3** | **60.5** | **64.8** |
+| CAL        | HRNet-W48 |  **61.5** | **88.1** | **68.7** | **60.7** | **63.5** | **66.3** |
 
 ### Note:
 - Flip test is used.
-- Person detector has person AP of 56.4 on COCO val2017 dataset.
+- \+SPSR means using  [SPSR](https://arxiv.org/abs/2003.13081) model to recover super-resolution images for pose estimation.
+<!-- - - Person detector has person AP of 60.9 on COCO test-dev2017 dataset.
 - GFLOPs is for convolution and linear layers only.
-
-### Results on COCO test-dev2017 with detector having human AP of 60.9 on COCO test-dev2017 dataset
-| Baseline                   | Input size | #Params | GFLOPs |   AP | Ap.5 | AP.75 | AP(M) | AP(L) |   AR |
-|----------------------------|------------|---------|--------|------|------|-------|-------|-------|------|
-| HRNet-W48                  |    384x288 | 63.6M   |   32.9 | 75.5 | 92.5 |  83.3 |  71.9 |  81.5 | 80.5 |
-| **HRNet-W48 + DARK**       |    384x288 | 63.6M   |   32.9 | 76.2 | 92.5 |  83.6 |  72.5 |  82.4 | 81.1 |
-| HRNet-W48\*                |    384x288 | 63.6M   |   32.9 | 77.0 | 92.7 |  84.5 |  73.4 |  83.1 | 82.0 |
-| **HRNet-W48 + DARK\***     |    384x288 | 63.6M   |   32.9 | 77.4 | 92.6 |  84.6 |  73.6 |  83.7 | 82.3 |
-| **HRNet-W48 + DARK\*\-**   |    384x288 | 63.6M   |   32.9 | 78.2 | 93.5 |  85.5 |  74.4 |  84.2 | 83.5 |
-| **HRNet-W48 + DARK\*\-\+** |    384x288 | 63.6M   |   32.9 | 78.9 | 93.8 |  86.0 |  75.1 |  84.4 | 83.5 |
-
-### Note:
-- Flip test is used.
-- Person detector has person AP of 60.9 on COCO test-dev2017 dataset.
-- GFLOPs is for convolution and linear layers only.
-- \* means using additional data from [AI challenger](https://challenger.ai/dataset/keypoint) for training.
+\* means using additional data from [AI challenger](https://challenger.ai/dataset/keypoint) for training.
 - \- means the detector ensemble with [HTC](https://github.com/open-mmlab/mmdetection) and [SNIPER](https://github.com/mahyarnajibi/SNIPER).
-- \+ means using model ensemble.
+
 
 ### Results on MPII val
 | PCKh | Baseline             | Head | Shoulder | Elbow | Wrist |  Hip | Knee | Ankle |
@@ -72,6 +45,7 @@ This work fills the gap by studying the coordinate representation with a particu
 - Flip test is used.
 - Input size is 256x256
 - GFLOPs is for convolution and linear layers only.
+-  -->
 
 ## Development environment
 
@@ -163,27 +137,16 @@ Examples:
 
 Assume that you have already downloaded the pretrained models and place them like the section 1.2.
 
-1. Testing on MPII dataset using HRNet_W32_256×256 model.
+1. Testing on COCO dataset using HRNet_W32_64×48 model.
 ```bash
 cd scripts
-bash run_test.sh experiments/mpii/hrnet/w32_256x256_adam_lr1e-3.yaml \
-    models/pytorch/pose_mpii/w32_256x256.pth
+bash run_test.sh experiments/coco/hrnet/w32_64x48_adam_lr1e-3.yaml \
+    models/pytorch/pose_coco/w32_64x48.pth
 ```
-2. Training on MPII dataset.
+2. Training on COCO dataset.
 ```bash
 cd scripts
-bash run_train.sh experiments/mpii/hrnet/w32_256x256_adam_lr1e-3.yaml
-```
-3. Testing on COCO dataset using HRNet_W32_128×96 model.
-```bash
-cd scripts
-bash run_test.sh experiments/coco/hrnet/w32_128x96_adam_lr1e-3.yaml \
-    models/pytorch/pose_coco/w32_128x96.pth
-```
-4. Training on COCO dataset.
-```bash
-cd scripts
-bash run_train.sh experiments/coco/hrnet/w32_128x96_adam_lr1e-3.yaml
+bash run_train.sh experiments/coco/hrnet/w32_64x48_adam_lr1e-3.yaml
 ```
 
 ### Citation
@@ -191,12 +154,13 @@ bash run_train.sh experiments/coco/hrnet/w32_128x96_adam_lr1e-3.yaml
 If you use our code or models in your research, please cite with:
 
 ```
-@InProceedings{Zhang_2019_CVPR,
-author = {Zhang, Feng and Zhu, Xiatian and Ye, Mao},
-title = {Fast Human Pose Estimation},
-booktitle = {The IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
-month = {June},
-year = {2019}
+@article{wang2022low,
+  title={Low-resolution human pose estimation},
+  author={Wang, Chen and Zhang, Feng and Zhu, Xiatian and Ge, Shuzhi Sam},
+  journal={Pattern Recognition},
+  volume={126},
+  pages={108579},
+  year={2022}
 }
 ```
 
@@ -204,5 +168,7 @@ year = {2019}
 [ILovePose](http://www.ilovepose.cn)
 
 ## Acknowledgement
-Thanks for the open-source HRNet
+Thanks for the open-source DARK, UDP and HRNet
+* [Distribution Aware Coordinate Representation for Human Pose Estimation](https://github.com/ilovepose/DarkPose)
+* [The Devil is in the Details: Delving into Unbiased Data Processing for Human Pose Estimation](https://github.com/HuangJunJie2017/UDP-Pose)
 * [Deep High-Resolution Representation Learning for Human Pose Estimation, Sun, Ke and Xiao, Bin and Liu, Dong and Wang, Jingdong](https://github.com/leoxiaobin/deep-high-resolution-net.pytorch/)
